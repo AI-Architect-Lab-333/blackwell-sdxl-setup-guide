@@ -45,6 +45,15 @@ export LD_LIBRARY_PATH=/usr/local/cuda-12.8/lib64:$LD_LIBRARY_PATH
 
 Verify: `nvcc --version` must show `release 12.8`.
 
+**Pitfall — a mis-written `cuda.sh` silently destroys your login PATH.** After creating the file, `cat /etc/profile.d/cuda.sh` and check that `$PATH` appears **literally spelled out**. A classic escaping mistake when writing the file through `echo` produces this instead:
+
+```bash
+export PATH=/usr/local/cuda-12.8/bin:\
+export LD_LIBRARY_PATH=/usr/local/cuda-12.8/lib64:\
+```
+
+The trailing backslash is a shell line continuation: both lines merge into a single command, and the login PATH becomes literally `/usr/local/cuda-12.8/bin:export` — no `/usr/bin`, no `/bin`. The symptom is spectacular and misleading: every interactive session opens with `grep: command not found` and `The command could not be located because '/bin:/usr/bin' is not included in the PATH environment variable`, while scripts that use absolute paths — and `wsl -e` non-login shells — keep working, so the breakage can go unnoticed for days (it did, here). One-line diagnosis: compare `bash -c 'echo $PATH'` (non-login — sane) with `bash -lc 'echo $PATH'` (login — broken); if they differ, a profile file is clobbering PATH. Fix: rewrite `/etc/profile.d/cuda.sh` as root with the exact two-line content above, then open a fresh session.
+
 ## Step 3 — PyTorch nightly (cu128)
 
 ```bash
@@ -152,3 +161,4 @@ This guide only covers image generation (reForge/Stable Diffusion). Video genera
 | `undefined symbol: ncclCommResume` | `nvidia-nccl-cu12` version too old | Force the latest available version |
 | Torch silently reverts to a stable version | The WebUI's `requirements.txt` has an unversioned `torch` | Remove that line before `pip install -r` |
 | `ModuleNotFoundError: No module named 'gradio'` | `--skip-install` also skips the gradio auto-install | Install gradio manually once |
+| Every command `not found` in interactive sessions (`'/bin:/usr/bin' is not included in the PATH`) while scripts still work | Mangled `cuda.sh`: lost `$PATH` + trailing `\` merging both lines | Rewrite `/etc/profile.d/cuda.sh`; verify `$PATH` appears literally |
